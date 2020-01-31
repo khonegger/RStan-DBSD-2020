@@ -1,0 +1,325 @@
+---
+title: "RStan model building demo for Biomedical Data Science Day 2020"
+output: html_notebook
+---
+
+# Introduction
+
+## Bayesian inference
+What is Bayesian inference?
+
+Why do Bayesian modeling?
+
+
+## Goals for today
+The overall goal for today is to teach you to fit and evaluate a simple Bayesian model using a set of current best practices and state-of-the-art software. This is broken down into the following stages:
+1. Intro to RStan and the Stan modeling language
+2. Quality Control for MCMC Chains using visualizations and statistical measures
+3. Prior distribution choice using the Prior Predictive Check
+4. Posterior distribution evaluation using the Posterior Predictive Check (looking for systematic deviations from the data)
+5. Model comparison using approximate leave-one-out cross-validation
+
+
+# Toolkit
+
+## RStan/Stan
+There are two components to performing inference with Stan: the "base" Stan and its R-interface (appropriately named RStan). At its core, Stan is a [C++ package](https://github.com/stan-dev/stan) built on top of a [C++ template library](https://github.com/stan-dev/math) built to efficiently calculate gradients. Thankfully, we don't have to compile everything from source - there are interfaces for working with the Stan platform within a variety of computing environments, e.g. Python, MATLAB, Stata (see the full list [here](https://mc-stan.org/users/interfaces/)). You could, in principle, do all of your model fitting using the command line interface to Stan, but for interactive, iterative modeling this would become tedious.
+
+Stan is a relative newcomer to the world of Bayesian modeling software. If you have past experience in that world, you might recall the venerable Gibbs sampler giants BUGS and JAGS. Stan builds off that same general tradition, and some of the syntax for declaring models has been co-opted, but Stan uses a fundamentally different algorithm for posterior sampling, called Hamiltonian Monte Carlo (HMC). By default, Stan uses an extended HMC algorithm called the [No-U-Turn Sampler](http://www.stat.columbia.edu/~gelman/research/published/nuts.pdf) (NUTS). The main advantage of the NUTS algorithm is that it automatically tunes the sampler parameters during a burn-in period, which saves you from having to hand-tune everything, which could have been limiting in the past. Moreover, these auto-tuned parameters can be used to quality check the MCMC chains and diagnose/remedy certain sampling problems. You can even use them to diagnose model mis-specification.
+
+Note: Stan also does L-BFGS optimization (meaning you can more or less do MLE using the same Stan script you wrote for your Bayesian model - just remove the priors) and has a great (or so I hear) library for solving differential equations.
+
+The full documentation for Stan is linked [here](https://mc-stan.org/users/documentation/). The documentation used to all be contained in one big document, but has recently been split into 3 components:
+1. [Stan User’s Guide](https://mc-stan.org/docs/2_21/stan-users-guide/index.html)
+2. [Stan Language Reference Manual](https://mc-stan.org/docs/2_21/reference-manual/index.html)
+3. [Stan Language Functions Reference](https://mc-stan.org/docs/2_21/functions-reference/index.html)
+
+The RStan interface has a number of great tools for visualizing and evaluating Stan models, including the `shinystan` dashboard we will use today.
+
+The documentation for RStan is [here](https://mc-stan.org/rstan/). This is a regular `pkgdown` documentation site.
+
+## shinystan
+The `shinystan` package is probably what makes me always stick with RStan as an interface, as opposed to Python or MATLAB. It takes an RStan model object as an argument and launches a shiny dashboard on a local port. The dashboard displays all kinds of useful information for diagnostics and evaluation. We'll see this is action today.
+
+## loo
+The `loo` package is used for performing approximate leave-one-out cross-validation on a collection of posterior log-likelihood values. More details can be found in Aki Vehtari's [paper](https://link.springer.com/article/10.1007/s11222-016-9696-4).
+
+## Tools we won't use today
+You should know that there are a couple of excellent packages available that wrap the whole RStan experience into a familiar, high-level `lm()`-ish interface:
+- [RStanArm](https://mc-stan.org/users/interfaces/rstanarm.html) (by some of the creators of RStan)
+- [brms](https://mc-stan.org/users/interfaces/brms.html)
+If you don't want to get too far into the weeds and feel that an off-the-shelf model will suffice for your purpose, these are a great way to quickly and painlessly build and evaluate Stan models. Their main drawback is the limited flexibility you get in terms of model specification - you can't construct arbitrary, bespoke models - but often that may be just fine.
+
+```{r setup}
+library(tidyverse)
+library(rstan)
+library(shinystan)
+library(loo)
+
+# Set default to parallelize chains (not sure how this will perform on a multi-session server)
+options(mc.cores = parallel::detectCores())
+
+```
+
+# Demonstration
+
+## Credits
+I want to make clear that much of this demonstration is borrowed from the Intro To Stan session presented by Jonah Gabry, Mitzi Morris, and Sean Talts at [StanCon 2018](https://mc-stan.org/events/stancon2018), which you can find [here](https://mc-stan.org/workshops/stancon2018_intro). We will follow along closely with what they did, but emphasize some different aspects of the modeling process.
+
+## Dataset
+The dataset we will use is a classic in the world of multilevel modeling: the Minnesota radon study. Although, technically, it wasn't just Minnesota that was surveyed, we will focus just on radon levels surveyed from counties in MN.
+
+The data originate from an EPA study of radon gas levels across the US. Radon is a radioactive gas that occurs naturally in soil and is capable of infiltrating homes through their foundation, where it tends to accumulate over time. Levels of the gas in the soil vary geographically across the US based on differences in local geology and soil characteristics.
+
+The bad news is that radon gas is a naturally occurring carcinogen. The good news is that it can be measured and reduced through remediation (though testing and remediation are costly). So there is utility in being able to predict what the expected radon level may be in a given house based on its characteristics and geographic location. So the goal here is to use features of a given home, and features of its location, to predict whether radon levels are may be high enough to warrant testing and possibly remediation.
+
+The dataset is described in more detail in [this paper](https://www.stat.columbia.edu/~gelman/research/published/multi2.pdf):
+>Gelman, A. (2006). Multilevel (hierarchical) modeling: what it can and cannot do. Technometrics, 48(3), 432-435.
+
+To save time, I've pre-formatted the dataset into the data frames we will need:
+```{r load-data}
+house_df <- readRDS('data/house-data.rds')
+county_df <- readRDS('data/county-data.rds')
+```
+
+The `house_df` data frame contains house-level data from 919 homes in MN.
+```{r}
+head(house_df)
+```
+We can see that the available features are: the floor where the measurement was made (0 = basement), radon level, log(radon), and the county for each house.
+
+The `county_df` data frame contains geological information about each of the 85 MN counties.
+```{r}
+head(county_df)
+```
+Specifically, we are given the uranium and log(uranium) levels in the soil for each county.
+
+
+## Fit and evaluate a simple (pooled) model
+We will start by fitting a very simple linear regression model to the house-level data:
+
+$y_i \sim \mathcal{N}(\alpha + \beta x_i, \sigma)$
+
+Here, $y$ is the log(radon) level of house $i$, $x_i$ is whether the measurement was taken on the first floor or basement of house $i$, and $\sigma$ captures the variance otherwise unaccounted for.
+
+So we are modeling the log(radon) level as a linear function of whether or not a house has a basement. Notice that we aren't accounting for the geographic location at all in this model. Therefore, we'll call this model the "pooled model" because all the houses are being pooled together, regardless of their county.
+
+Before we can pass the data to Stan, we need to format it as a list with individual data elements (these will make more sense in a minute)
+```{r}
+pooled_dat <- list(
+  N = nrow(house_df),     # number of observations
+  x = house_df$floor,     # floor level predictor
+  y = house_df$log_radon  # radon level outcome
+)
+
+```
+
+Now we have to define our model using Stan's modeling syntax
+```{r}
+pooled_str <- "
+data {
+  int<lower=0> N;
+  vector[N] x;
+  vector[N] y;
+}
+parameters {
+  vector[2] beta;
+  real<lower=0> sigma;
+}
+model {
+  y ~ normal(beta[1] + beta[2] * x, sigma);
+}
+
+"
+```
+
+We could actually pass the model specification into `stan` as the string we created above, but it's better practice to write the specification to an actual model file (we'll use the `.stan` extension that RStudio recognizes) that can be reused and modified.
+```{r}
+pooled_fpath <- "code/stan/pooled.stan"
+pooled <- file(pooled_fpath)
+writeLines(pooled_str, pooled)
+close(pooled)
+```
+
+Now, we just pass `stan` the path to our `.stan` model file and the list containing our data (plus some parmeters we'll discuss)
+```{r}
+pooled_mdl <- stan(file = pooled_fpath,
+                   data = pooled_dat,
+                   iter = 2000,
+                   warmup = 1000,
+                   chains = 2,
+                   verbose = 1)
+```
+And that's it - you just created your first Stan model. Congratulations!
+
+The output of the call to `stan` is a stan model object we called `pooled_mdl`. We can print a summary simply by passing it to `print()`
+```{r}
+print(pooled_mdl)
+```
+
+That looks good, but are we confident that the sampling worked like it should?
+```{r}
+launch_shinystan(pooled_mdl)
+```
+
+But, wait! What about our priors?  Let's add them to the model (we'll just overwrite the existing stan file)
+```{r}
+pooled_str <- "
+data {
+  int<lower=0> N;
+  vector[N] x;
+  vector[N] y;
+}
+parameters {
+  vector[2] beta;
+  real<lower=0> sigma;
+}
+model {
+  beta ~ normal(0, 1);    // Prior on beta (both coefficients)
+  sigma ~ normal(0, 1);   // Prior on sigma
+  y ~ normal(beta[1] + beta[2] * x, sigma);
+}
+"
+
+pooled_fpath <- "code/stan/pooled.stan"
+pooled <- file(pooled_fpath)
+writeLines(pooled_str, pooled)
+close(pooled)
+```
+
+Now let's fit with the new model spec (it will need to recompile the model, so be patient)
+```{r}
+pooled_mdl_priors <- stan(file = pooled_fpath,
+                          data = pooled_dat,
+                          iter = 2000,
+                          warmup = 1000,
+                          chains = 2,
+                          verbose = 0)
+```
+```{r}
+print(pooled_mdl_priors)
+```
+
+That doesn't look too different.How did the sampling do?
+```{r}
+launch_shinystan(pooled_mdl_priors)
+```
+
+So, even after putting some weaky informative priors on the parameters, the results didn't change much. What happens if we try a stronger prior (narrower prior distribution)?
+```{r}
+pooled_str <- "
+data {
+  int<lower=0> N;
+  vector[N] x;
+  vector[N] y;
+}
+parameters {
+  vector[2] beta;
+  real<lower=0> sigma;
+}
+model {
+  beta ~ normal(0, 0.1);    // Prior on beta (both coefficients)
+  sigma ~ normal(0, 0.1);   // Prior on sigma
+  y ~ normal(beta[1] + beta[2] * x, sigma);
+}
+"
+
+pooled_fpath <- "code/stan/pooled.stan"
+pooled <- file(pooled_fpath)
+writeLines(pooled_str, pooled)
+close(pooled)
+
+```
+
+```{r}
+pooled_mdl_priors <- stan(file = pooled_fpath,
+                          data = pooled_dat,
+                          iter = 2000,
+                          warmup = 1000,
+                          chains = 2,
+                          verbose = 0)
+```
+
+```{r}
+print(pooled_mdl_priors)
+```
+Now that's quite a bit different! We can see that both coefficients are shrunk toward zero. So, obviously, prior selection can have a big effect on the outcome. How do we choose priors (which can be subjective) in  principled way?
+
+## Prior predictive check
+We will use the Prior predictive check approach to choose prior values that are reasonable, given what we know about world.
+
+We'll start by making two modifications to our Stan script. First, we will turn the hardcoded prior values into data that we can pass into the model.
+```{r}
+pooled_str <- "
+data {
+  int<lower=0> N;
+  vector[N] x;
+  vector[N] y;
+
+  // add prior values to data block //
+  real beta_prior_mean;           
+  real sigma_prior_mean;
+  real<lower=0> beta_prior_var;
+  real<lower=0> sigma_prior_var;
+}
+parameters {
+  vector[2] beta;
+  real<lower=0> sigma;
+}
+model {
+  beta ~ normal(beta_prior_mean, beta_prior_var);
+  sigma ~ normal(sigma_prior_mean, sigma_prior_var);
+  y ~ normal(beta[1] + beta[2] * x, sigma);
+}
+"
+```
+
+Second, we will add a `generated quantities` block to simulate samples taken from the prior predictive distribution
+```{r}
+pooled_str <- "
+data {
+  int<lower=0> N;
+  vector[N] x;
+  vector[N] y;
+
+  // add prior values to data block //
+  real beta_prior_mean;           
+  real sigma_prior_mean;
+  real<lower=0> beta_prior_var;
+  real<lower=0> sigma_prior_var;
+
+  // binary indicator to sample from the prior PD//
+  int<lower=0,upper=1> sample_prior;
+}
+parameters {
+  vector[2] beta;
+  real<lower=0> sigma;
+}
+model {
+  beta ~ normal(beta_prior_mean, beta_prior_var);
+  sigma ~ normal(sigma_prior_mean, sigma_prior_var);
+  y ~ normal(beta[1] + beta[2] * x, sigma);
+}
+"
+```
+
+Now we add values for these new data arguments to our data structure
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
+
+```{r}
+
+```
+
