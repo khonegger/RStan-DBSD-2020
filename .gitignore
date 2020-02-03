@@ -5,6 +5,9 @@
 # Session Data files
 .RData
 
+# Stan model files
+*.stan
+
 # User-specific files
 .Ruserdata
 
@@ -19,6 +22,10 @@
 
 # RStudio files
 .Rproj.user/
+
+# Knitr files
+*_files/
+*_cache/
 
 # produced vignettes
 vignettes/*.html
@@ -37,3 +44,4 @@ vignettes/*.pdf
 
 # Mac DS Store
 .DS_STORE
+code/stan/pooled.stan
