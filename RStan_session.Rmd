@@ -669,7 +669,6 @@ Everything seems to have gone well. Let's look in a little more depth.
 launch_shinystan(unpooled_mdl_fit)
 ```
 
-
 Now we extract the pointwise log likelihoods and MCMC effective sample sizes, `N_eff`.
 ```{r, cache=TRUE}
 LLmat <- extract_log_lik(unpooled_mdl_fit)
@@ -693,18 +692,21 @@ plot(unpooled_loo, label_points = TRUE)
 ```
 So the LOO-CV approximations for houses 145, 509, and 891 are the problematic ones. These are the observations for which we would need to manually do the LOO-CV. For today, we'll just have to put an asterisk on this model and leave it as is.
 
-### Partially-pooled model
-Finally, we will build a multilevel (hierarchical) model that lives somewhere between the fully pooled model and the unpooled model. The great thing about multilevel models is that they give us the ability to "partially" pool the data - meaning that we allow the predictor effects to vary by county, but those county-level effects "share" strength and are not totally independent, like they are in the unpooled model. This means that counties with very few houses will benefit by having their estimates anchored by more highly sampled counties.
+### Comparing the pooled vs. unpooled models
+Finally, we would like to compare the two models we've built and see which one might be expected to have better generalization to new data. Luckily, using `loo` this is super easy. We just use the `compare()` function in `loo` to compare the ELPD values from the two models.
+```{r}
+compare(pooled_loo, unpooled_loo)
+```
+Great! Now what does that mean? Well, all it has really done is calculate the difference in ELPD values (i.e., $ELPD_{diff} = ELPD_{unpooled} - ELPD_{pooled}$) and estimated a Standard Error for that difference (you could bootstrap it yourself instead, if you really wanted). If we consult the documentation for `loo` we learn that
+> The difference will be positive if the expected predictive accuracy for the second model is higher.
 
-$$y_{ij} \sim \mathcal{N}(\alpha_{j} + \beta x_{ij}, \sigma_y), \\
-\alpha_j \sim \mathcal{N}(\gamma_0 + \gamma_1u_j, \sigma_{\alpha})$$
+So, since our ELPD difference is positive, this means that our unpooled model (the second argument to `compare()`) is expected to perform better. But take this with a grain of salt, since the SE on this estimate is so high. In the real world, I wouldn't be happy to stop here, since both of these models seem inadequate and neither is a clear improvement on the other. A great candidate to try would be a multilevel (hierarchical) model, which is one of the places where Stan really shines.
 
-As before, $y_{ij}$ is the log(radon) level of house $i$ in county $j$, $x_{ij}$ is whether a measurement was taken on the first floor ($X = 1$) or basement ($X = 0$), and $u_j$ is the log(uranium) in county $j$. Notice that we now have two $\sigma$'s. As before, $\sigma_y$ represents the (within-county) variation otherwise unaccounted for, but $\sigma_{\alpha}$ is interesting. It represents the variation between counties that isn't accounted for by uranium levels. Again we are fitting a separate intercept, $\alpha_j$, for each county, $j$, but now $\alpha_j$ is itself a linear function of the county uranium level. As before, $\beta$ is the effect of having a basement, and now $\gamma_1$ is the contribution of soil uranium level to county-level offsets. These effects do not differ by county.
-
-Let's update our Stan model specification to reflect these changes.
+## Wrapup
+I hope you enjoyed this whirlwind tour of Bayesian modeling and probabilistic programming in RStan. While we didn't have time to cover anything in great depth, you should have the basic foundational knowledge you need to start digging deeper. Below are some additional resources that I've found helpful over the years.
 
 
-# Stan/Bayesian modeling resources
+# Resources for Stan and Bayesian modeling
 Besides the materials I linked to above, these are several other web resources you may find helpful
 
 - [The Stan Forums](https://discourse.mc-stan.org)
