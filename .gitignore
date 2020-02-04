@@ -44,4 +44,3 @@ vignettes/*.pdf
 
 # Mac DS Store
 .DS_STORE
-code/stan/pooled.stan

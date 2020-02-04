@@ -315,13 +315,24 @@ Biomedical Data Science Day 2020
 <p>Welcome to Probabilistic Programming for Bayesian Inference using RStan!</p>
 <div id="what-is-bayesian-inference" class="section level2">
 <h2>What is Bayesian inference?</h2>
+<ul>
+<li>Priors</li>
+<li>Evidence</li>
+<li>Posteriors</li>
+</ul>
 </div>
 <div id="why-do-bayesian-modeling" class="section level2">
 <h2>Why do Bayesian modeling?</h2>
+<p>Three key advantages that come to mind for me:</p>
+<ol style="list-style-type: decimal">
+<li>Null hypothesis-free inference (posteriors are easier to understand and explain)</li>
+<li>Ability to incorporate prior knowledge (or least provide regularization/identifiability)</li>
+<li>Lends itself to bespoke models, custom-tailored to your research problem (though you could probably fit those same models with MLE)</li>
+</ol>
 </div>
 <div id="goals-for-today" class="section level2">
 <h2>Goals for today</h2>
-<p>The overall goal for today is to teach you to fit and evaluate a simple Bayesian model using a set of current best practices and state-of-the-art software. This is broken down into the following stages:</p>
+<p>The overall goal for today is to teach you to fit and evaluate a simple Bayesian model using a set of current best practices and state-of-the-art software. This will be broken down into the following stages:</p>
 <ol style="list-style-type: decimal">
 <li>Intro to RStan and the Stan modeling language</li>
 <li>Quality Control for MCMC Chains using visualizations and statistical measures</li>
@@ -369,9 +380,13 @@ library(rstan)
 library(shinystan)
 library(loo)
 
-# Set default to parallelize chains (not sure how this will perform on a multi-session server)
-options(mc.cores = parallel::detectCores(),
-        knitr.table.format = &quot;html&quot;)</code></pre>
+if (Sys.info()[&quot;sysname&quot;] == &quot;Linux&quot;) {
+  setwd('workshop_materials/')
+}
+
+# Parallelize chains (may not be a great idea on a server)
+#options(mc.cores = parallel::detectCores())
+options(knitr.table.format = &quot;html&quot;)</code></pre>
 </div>
 </div>
 <div id="demonstration" class="section level1">
@@ -594,7 +609,7 @@ parameters {
   real&lt;lower=0&gt; sigma;  // variance not accounted for by predictor
 }
 model {
-  y ~ normal(beta[1] + beta[2] * x, sigma);
+  y ~ normal(beta[1] + beta[2] * x, sigma); // likelihood statement
 }
 &quot;</code></pre>
 <p>We could actually pass the model specification into <code>stan</code> as the string we created above, but it’s better practice to write the specification to an actual model file (we’ll use the <code>.stan</code> extension that RStudio recognizes) that can be reused and modified.</p>
@@ -754,8 +769,8 @@ close(pooled)</code></pre>
 <p>Now that’s quite a bit different! We can see that both coefficients are shrunk toward zero. So, obviously, prior selection can have a big effect on the outcome. How do we choose priors (which can be subjective) in a principled way?</p>
 </div>
 <div id="prior-predictive-check" class="section level2">
-<h2>Prior predictive check</h2>
-<p>We will use the Prior predictive check approach to choose prior values that are reasonable, given what we know about world.</p>
+<h2>Prior Predictive Check</h2>
+<p>We will use the Prior Predictive Check approach to choose prior values that are reasonable, given what we know about world.</p>
 <p>We’ll start by making two modifications to our Stan script. First, we will turn the hardcoded prior values into data that we can pass into the model.</p>
 <pre class="r"><code>pooled_str &lt;- &quot;
 data {
@@ -812,7 +827,7 @@ model {
 
 }
 
-// New block generate samples from the predictive distribution //
+// New block generates samples from the predictive distribution //
 generated quantities {
   vector[N] y_rep;
   for (n in 1:N) {
@@ -838,11 +853,61 @@ close(pooled)</code></pre>
 )</code></pre>
 <p>Then we pass the new model and data to <code>stan</code>.</p>
 <pre class="r"><code>pooled_mdl_prior_pred &lt;- stan(file = pooled_fpath,
-                          data = pooled_dat_prior_pred,
-                          seed = 438342013, # for reproducibility here
-                          iter = 1000,
-                          chains = 2,
-                          verbose = 0)</code></pre>
+                              data = pooled_dat_prior_pred,
+                              seed = 438342013, # for reproducibility here
+                              iter = 1000,
+                              chains = 2,
+                              verbose = 0)</code></pre>
+<pre><code>## 
+## SAMPLING FOR MODEL 'pooled' NOW (CHAIN 1).
+## Chain 1: 
+## Chain 1: Gradient evaluation took 1.5e-05 seconds
+## Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.15 seconds.
+## Chain 1: Adjust your expectations accordingly!
+## Chain 1: 
+## Chain 1: 
+## Chain 1: Iteration:   1 / 1000 [  0%]  (Warmup)
+## Chain 1: Iteration: 100 / 1000 [ 10%]  (Warmup)
+## Chain 1: Iteration: 200 / 1000 [ 20%]  (Warmup)
+## Chain 1: Iteration: 300 / 1000 [ 30%]  (Warmup)
+## Chain 1: Iteration: 400 / 1000 [ 40%]  (Warmup)
+## Chain 1: Iteration: 500 / 1000 [ 50%]  (Warmup)
+## Chain 1: Iteration: 501 / 1000 [ 50%]  (Sampling)
+## Chain 1: Iteration: 600 / 1000 [ 60%]  (Sampling)
+## Chain 1: Iteration: 700 / 1000 [ 70%]  (Sampling)
+## Chain 1: Iteration: 800 / 1000 [ 80%]  (Sampling)
+## Chain 1: Iteration: 900 / 1000 [ 90%]  (Sampling)
+## Chain 1: Iteration: 1000 / 1000 [100%]  (Sampling)
+## Chain 1: 
+## Chain 1:  Elapsed Time: 0.058862 seconds (Warm-up)
+## Chain 1:                0.058201 seconds (Sampling)
+## Chain 1:                0.117063 seconds (Total)
+## Chain 1: 
+## 
+## SAMPLING FOR MODEL 'pooled' NOW (CHAIN 2).
+## Chain 2: 
+## Chain 2: Gradient evaluation took 6e-06 seconds
+## Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.06 seconds.
+## Chain 2: Adjust your expectations accordingly!
+## Chain 2: 
+## Chain 2: 
+## Chain 2: Iteration:   1 / 1000 [  0%]  (Warmup)
+## Chain 2: Iteration: 100 / 1000 [ 10%]  (Warmup)
+## Chain 2: Iteration: 200 / 1000 [ 20%]  (Warmup)
+## Chain 2: Iteration: 300 / 1000 [ 30%]  (Warmup)
+## Chain 2: Iteration: 400 / 1000 [ 40%]  (Warmup)
+## Chain 2: Iteration: 500 / 1000 [ 50%]  (Warmup)
+## Chain 2: Iteration: 501 / 1000 [ 50%]  (Sampling)
+## Chain 2: Iteration: 600 / 1000 [ 60%]  (Sampling)
+## Chain 2: Iteration: 700 / 1000 [ 70%]  (Sampling)
+## Chain 2: Iteration: 800 / 1000 [ 80%]  (Sampling)
+## Chain 2: Iteration: 900 / 1000 [ 90%]  (Sampling)
+## Chain 2: Iteration: 1000 / 1000 [100%]  (Sampling)
+## Chain 2: 
+## Chain 2:  Elapsed Time: 0.058941 seconds (Warm-up)
+## Chain 2:                0.05743 seconds (Sampling)
+## Chain 2:                0.116371 seconds (Total)
+## Chain 2:</code></pre>
 <p>And let’s take a look at the prior predictive samples in <code>shinystan</code>.</p>
 <pre class="r"><code># Extract the prior predictive samples
 y_prior_pred &lt;- rstan::extract(pooled_mdl_prior_pred, pars = &quot;y_rep&quot;)
@@ -865,11 +930,61 @@ ggplot() +
 <pre class="r"><code>pooled_dat_prior_pred$sigma_prior_scale &lt;- 5</code></pre>
 <p>Now our <code>stan</code> call to sample from the Prior Predictive Distribution is just</p>
 <pre class="r"><code>pooled_mdl_prior_pred &lt;- stan(file = pooled_fpath,
-                          data = pooled_dat_prior_pred,
-                          seed = 438342013, # for reproducibility here
-                          iter = 1000,
-                          chains = 2,
-                          verbose = 0)</code></pre>
+                              data = pooled_dat_prior_pred,
+                              seed = 438342013, # for reproducibility here
+                              iter = 1000,
+                              chains = 2,
+                              verbose = 0)</code></pre>
+<pre><code>## 
+## SAMPLING FOR MODEL 'pooled' NOW (CHAIN 1).
+## Chain 1: 
+## Chain 1: Gradient evaluation took 7e-06 seconds
+## Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.07 seconds.
+## Chain 1: Adjust your expectations accordingly!
+## Chain 1: 
+## Chain 1: 
+## Chain 1: Iteration:   1 / 1000 [  0%]  (Warmup)
+## Chain 1: Iteration: 100 / 1000 [ 10%]  (Warmup)
+## Chain 1: Iteration: 200 / 1000 [ 20%]  (Warmup)
+## Chain 1: Iteration: 300 / 1000 [ 30%]  (Warmup)
+## Chain 1: Iteration: 400 / 1000 [ 40%]  (Warmup)
+## Chain 1: Iteration: 500 / 1000 [ 50%]  (Warmup)
+## Chain 1: Iteration: 501 / 1000 [ 50%]  (Sampling)
+## Chain 1: Iteration: 600 / 1000 [ 60%]  (Sampling)
+## Chain 1: Iteration: 700 / 1000 [ 70%]  (Sampling)
+## Chain 1: Iteration: 800 / 1000 [ 80%]  (Sampling)
+## Chain 1: Iteration: 900 / 1000 [ 90%]  (Sampling)
+## Chain 1: Iteration: 1000 / 1000 [100%]  (Sampling)
+## Chain 1: 
+## Chain 1:  Elapsed Time: 0.05825 seconds (Warm-up)
+## Chain 1:                0.059006 seconds (Sampling)
+## Chain 1:                0.117256 seconds (Total)
+## Chain 1: 
+## 
+## SAMPLING FOR MODEL 'pooled' NOW (CHAIN 2).
+## Chain 2: 
+## Chain 2: Gradient evaluation took 7e-06 seconds
+## Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.07 seconds.
+## Chain 2: Adjust your expectations accordingly!
+## Chain 2: 
+## Chain 2: 
+## Chain 2: Iteration:   1 / 1000 [  0%]  (Warmup)
+## Chain 2: Iteration: 100 / 1000 [ 10%]  (Warmup)
+## Chain 2: Iteration: 200 / 1000 [ 20%]  (Warmup)
+## Chain 2: Iteration: 300 / 1000 [ 30%]  (Warmup)
+## Chain 2: Iteration: 400 / 1000 [ 40%]  (Warmup)
+## Chain 2: Iteration: 500 / 1000 [ 50%]  (Warmup)
+## Chain 2: Iteration: 501 / 1000 [ 50%]  (Sampling)
+## Chain 2: Iteration: 600 / 1000 [ 60%]  (Sampling)
+## Chain 2: Iteration: 700 / 1000 [ 70%]  (Sampling)
+## Chain 2: Iteration: 800 / 1000 [ 80%]  (Sampling)
+## Chain 2: Iteration: 900 / 1000 [ 90%]  (Sampling)
+## Chain 2: Iteration: 1000 / 1000 [100%]  (Sampling)
+## Chain 2: 
+## Chain 2:  Elapsed Time: 0.054916 seconds (Warm-up)
+## Chain 2:                0.060061 seconds (Sampling)
+## Chain 2:                0.114977 seconds (Total)
+## Chain 2:</code></pre>
 <p>And let’s visualize our resulting prior predictive distribution as we did above.</p>
 <pre class="r"><code># Extract the prior predictive samples
 y_prior_pred &lt;- rstan::extract(pooled_mdl_prior_pred, pars = &quot;y_rep&quot;)
@@ -887,13 +1002,62 @@ ggplot() +
 pooled_dat_prior_pred$sigma_prior_scale &lt;- 1
 
 pooled_mdl_prior_pred &lt;- stan(file = pooled_fpath,
-                          data = pooled_dat_prior_pred,
-                          seed = 438342013, # for reproducibility here
-                          iter = 1000,
-                          chains = 2,
-                          verbose = 0)
-
-# Extract the prior predictive samples
+                              data = pooled_dat_prior_pred,
+                              seed = 438342013, # for reproducibility here
+                              iter = 1000,
+                              chains = 2,
+                              verbose = 0)</code></pre>
+<pre><code>## 
+## SAMPLING FOR MODEL 'pooled' NOW (CHAIN 1).
+## Chain 1: 
+## Chain 1: Gradient evaluation took 1.4e-05 seconds
+## Chain 1: 1000 transitions using 10 leapfrog steps per transition would take 0.14 seconds.
+## Chain 1: Adjust your expectations accordingly!
+## Chain 1: 
+## Chain 1: 
+## Chain 1: Iteration:   1 / 1000 [  0%]  (Warmup)
+## Chain 1: Iteration: 100 / 1000 [ 10%]  (Warmup)
+## Chain 1: Iteration: 200 / 1000 [ 20%]  (Warmup)
+## Chain 1: Iteration: 300 / 1000 [ 30%]  (Warmup)
+## Chain 1: Iteration: 400 / 1000 [ 40%]  (Warmup)
+## Chain 1: Iteration: 500 / 1000 [ 50%]  (Warmup)
+## Chain 1: Iteration: 501 / 1000 [ 50%]  (Sampling)
+## Chain 1: Iteration: 600 / 1000 [ 60%]  (Sampling)
+## Chain 1: Iteration: 700 / 1000 [ 70%]  (Sampling)
+## Chain 1: Iteration: 800 / 1000 [ 80%]  (Sampling)
+## Chain 1: Iteration: 900 / 1000 [ 90%]  (Sampling)
+## Chain 1: Iteration: 1000 / 1000 [100%]  (Sampling)
+## Chain 1: 
+## Chain 1:  Elapsed Time: 0.064537 seconds (Warm-up)
+## Chain 1:                0.059919 seconds (Sampling)
+## Chain 1:                0.124456 seconds (Total)
+## Chain 1: 
+## 
+## SAMPLING FOR MODEL 'pooled' NOW (CHAIN 2).
+## Chain 2: 
+## Chain 2: Gradient evaluation took 8e-06 seconds
+## Chain 2: 1000 transitions using 10 leapfrog steps per transition would take 0.08 seconds.
+## Chain 2: Adjust your expectations accordingly!
+## Chain 2: 
+## Chain 2: 
+## Chain 2: Iteration:   1 / 1000 [  0%]  (Warmup)
+## Chain 2: Iteration: 100 / 1000 [ 10%]  (Warmup)
+## Chain 2: Iteration: 200 / 1000 [ 20%]  (Warmup)
+## Chain 2: Iteration: 300 / 1000 [ 30%]  (Warmup)
+## Chain 2: Iteration: 400 / 1000 [ 40%]  (Warmup)
+## Chain 2: Iteration: 500 / 1000 [ 50%]  (Warmup)
+## Chain 2: Iteration: 501 / 1000 [ 50%]  (Sampling)
+## Chain 2: Iteration: 600 / 1000 [ 60%]  (Sampling)
+## Chain 2: Iteration: 700 / 1000 [ 70%]  (Sampling)
+## Chain 2: Iteration: 800 / 1000 [ 80%]  (Sampling)
+## Chain 2: Iteration: 900 / 1000 [ 90%]  (Sampling)
+## Chain 2: Iteration: 1000 / 1000 [100%]  (Sampling)
+## Chain 2: 
+## Chain 2:  Elapsed Time: 0.063152 seconds (Warm-up)
+## Chain 2:                0.060159 seconds (Sampling)
+## Chain 2:                0.123311 seconds (Total)
+## Chain 2:</code></pre>
+<pre class="r"><code># Extract the prior predictive samples
 y_prior_pred &lt;- rstan::extract(pooled_mdl_prior_pred, pars = &quot;y_rep&quot;)
 y_prior_pred &lt;- as.numeric(y_prior_pred$y_rep)
 
@@ -920,16 +1084,16 @@ pooled_mdl_fit &lt;- stan(file = pooled_fpath,
                        verbose = 0)</code></pre>
 <p>Let’s view the results in <code>shinystan</code>.</p>
 <pre class="r"><code>launch_shinystan(pooled_mdl_fit)</code></pre>
-<p>The diagnostics look good and there don’t seem to be any sampling issues with out final pooled model, so we can continue to the next stage.</p>
+<p>The diagnostics look good and there don’t seem to be any sampling issues with our final pooled model, so we can continue to the next stage.</p>
 </div>
 <div id="model-fit-evaluation-using-posterior-predictive-check" class="section level2">
 <h2>Model fit evaluation using Posterior Predictive Check</h2>
 <p>Now that we’ve got a model, how do we evaluate its fit to the data? We can’t exactly calculate a model <span class="math inline">\(R^2\)</span> value, since our result in a Bayesian analysis is a posterior distribution, not a set of point estimates. (Full disclosure: there are Bayesian <span class="math inline">\(R^2\)</span> analogs out there, but their general utility is debated)</p>
-<p>One commonly used approach is a technique similar to the prior predictive check - called the Posterior Predictive Check. The idea is basically the same, but instead of sampling from the prior predictive distribution without doing any fitting, we sample from the posterior predictive distribution at each MCMC step during fitting. This time we <em>do</em> use the real data and compare it with this distribution. We are looking for systematic deviations from the data that would indicate model inadequacy, misspecification, or miscalibration.</p>
-<p>This is largely a qualitative exercise, using visualizations. The easiest way to visualize the posterior predictive check is to use <code>shinystan</code>, which has tools included just for this purpose.</p>
+<p>One commonly used approach is a technique similar to the Prior Predictive Check - called the Posterior Predictive Check. The idea is basically the same, but instead of sampling from the prior predictive distribution without doing any fitting, we sample from the posterior predictive distribution at each MCMC step during fitting. This time we <em>do</em> use the real data and compare it with this distribution. We are looking for systematic deviations from the data that would indicate model inadequacy, misspecification, or miscalibration.</p>
+<p>This is largely a qualitative exercise, using visualizations. The easiest way to visualize the Posterior Predictive Check is to use <code>shinystan</code>, which has tools included just for this purpose.</p>
 <pre class="r"><code>y &lt;- house_df$log_radon # need to bring this vector into the global env
 launch_shinystan(pooled_mdl_fit)</code></pre>
-<p>So we can see that this model is a decent fit to the data. It doesn’t perfectly capture every contour of the observed distribution, but we can only expect so much from such a simple model. If there were large, systematic differences observed, we would need to reconsider our basic model structure and formulation. For example, if heavy tails are observed in the data, but are always missing from the posterior predictive samples, this would indicate that a Normal model for the outcome may not be appropriate. A Student-T distribution may be more appropriate for those data, which would require adding an additional “degrees of freedom” parameter (<span class="math inline">\(\nu\)</span>) into the model. The prior predictive checking would need to be performed all over again, this time including priors on <span class="math inline">\(\nu\)</span>.</p>
+<p>So we can see that this model is a decent fit to the data. It doesn’t perfectly capture every contour of the observed distribution, but we can only expect so much from such a simple model. If there were large, systematic differences observed, we would need to reconsider our basic model structure and formulation. For example, if heavy tails are observed in the data, but are always missing from the posterior predictive samples, this would indicate that a Normal model for the outcome may not be appropriate. A Student-T distribution may be more appropriate for those data, which would require adding an additional “degrees of freedom” parameter (<span class="math inline">\(\nu\)</span>) into the model. The Prior Predictive Check would need to be performed all over again, this time including priors on <span class="math inline">\(\nu\)</span>.</p>
 </div>
 <div id="estimating-out-of-sample-performance-using-loo-cv" class="section level2">
 <h2>Estimating out-of-sample performance using LOO-CV</h2>
@@ -996,8 +1160,7 @@ rel_n_eff &lt;- relative_eff(exp(LLmat), chain_id = rep(1:4, each = 2500))</code
 <p>And pass these values to <code>loo</code>, which performs the approximate leave-one-out cross-validation.</p>
 <pre class="r"><code>pooled_loo &lt;- loo(LLmat,
                   r_eff = rel_n_eff,
-                  save_psis = TRUE,
-                  cores = parallel::detectCores()
+                  save_psis = TRUE
                   )
 print(pooled_loo)</code></pre>
 <pre><code>## 
@@ -1077,7 +1240,7 @@ unpooled_fpath &lt;- &quot;code/stan/unpooled.stan&quot;
 unpooled &lt;- file(unpooled_fpath)
 writeLines(unpooled_str, unpooled)
 close(unpooled)</code></pre>
-<p>Notice that we are just applying the same priors to alpha and beta. Because we are short for time, we are skipping an important step - the prior predictive check. If this was the real-world, you would want to redo your prior predictive check to make sure this is a reasonable choice and use separate priors for alpha and beta, if warranted.</p>
+<p>Notice that we are just applying the same priors to alpha and beta. Because we are short for time, we are skipping an important step - the Prior Predictive Check. If this was the real-world, you would want to redo your Prior Predictive Check to make sure this is a reasonable choice and use separate priors for alpha and beta, if warranted.</p>
 <p>Now we update our data structure with the county information.</p>
 <pre class="r"><code>unpooled_dat &lt;- list(
   N = nrow(house_df),           # number of observations
@@ -1107,8 +1270,7 @@ rel_n_eff &lt;- relative_eff(exp(LLmat), chain_id = rep(1:4, each = 2500))</code
 <p>And pass these values to <code>loo</code>, which performs the approximate leave-one-out cross-validation.</p>
 <pre class="r"><code>unpooled_loo &lt;- loo(LLmat,
                     r_eff = rel_n_eff,
-                    save_psis = TRUE,
-                    cores = parallel::detectCores()
+                    save_psis = TRUE
                     )</code></pre>
 <pre><code>## Warning: Some Pareto k diagnostic values are too high. See help('pareto-k-diagnostic') for details.</code></pre>
 <pre class="r"><code>print(unpooled_loo)</code></pre>
@@ -1140,13 +1302,13 @@ rel_n_eff &lt;- relative_eff(exp(LLmat), chain_id = rep(1:4, each = 2500))</code
 <pre class="r"><code>compare(pooled_loo, unpooled_loo)</code></pre>
 <pre><code>## elpd_diff        se 
 ##      22.8      13.7</code></pre>
-<p>Great! Now what does that mean? Well, all it has really done is calculate the difference in ELPD values (i.e., <span class="math inline">\(ELPD_{diff} = ELPD_{pooled} - ELPD_{unpooled}\)</span>) and estimated a Standard Error for that difference (you could bootstrap it yourself instead, if you really wanted). If we consult the documentation for <code>loo</code> we learn that &gt; The difference will be positive if the expected predictive accuracy for the second model is higher.</p>
+<p>Great! Now what does that mean? Well, all it has really done is calculate the difference in ELPD values (i.e., <span class="math inline">\(ELPD_{diff} = ELPD_{unpooled} - ELPD_{pooled}\)</span>) and estimated a Standard Error for that difference (you could bootstrap it yourself instead, if you really wanted). If we consult the documentation for <code>loo</code> we learn that the difference will be positive if the expected predictive accuracy for the second model is higher.</p>
 <p>So, since our ELPD difference is positive, this means that our unpooled model (the second argument to <code>compare()</code>) is expected to perform better. But take this with a grain of salt, since the SE on this estimate is so high. In the real world, I wouldn’t be happy to stop here, since both of these models seem inadequate and neither is a clear improvement on the other. A great candidate to try would be a multilevel (hierarchical) model, which is one of the places where Stan really shines.</p>
 </div>
 </div>
 <div id="wrapup" class="section level2">
 <h2>Wrapup</h2>
-<p>I hope you enjoyed this whirlwind tour of Bayesian modeling and probabilistic programming in RStan. While we didn’t have time to cover anything in great depth, you should have the basic fundational knowledge you need to start digging deeper. Below are some additional resources tht I’ve found helpful over the years.</p>
+<p>I hope you enjoyed this whirlwind tour of Bayesian modeling and probabilistic programming in RStan. While we didn’t have time to cover anything in great depth, you should have the basic foundational knowledge you need to start digging deeper. Below are some additional resources that I’ve found helpful over the years.</p>
 </div>
 </div>
 <div id="resources-for-stan-and-bayesian-modeling" class="section level1">

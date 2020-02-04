@@ -17,11 +17,19 @@ output:
 Welcome to Probabilistic Programming for Bayesian Inference using RStan!
 
 ## What is Bayesian inference?
+- Priors
+- Evidence
+- Posteriors
 
 ## Why do Bayesian modeling?
+Three key advantages that come to mind for me:
+
+1. Null hypothesis-free inference (posteriors are easier to understand and explain)
+2. Ability to incorporate prior knowledge (or least provide regularization/identifiability)
+3. Lends itself to bespoke models, custom-tailored to your research problem (though you could probably fit those same models with MLE)
 
 ## Goals for today
-The overall goal for today is to teach you to fit and evaluate a simple Bayesian model using a set of current best practices and state-of-the-art software. This is broken down into the following stages:
+The overall goal for today is to teach you to fit and evaluate a simple Bayesian model using a set of current best practices and state-of-the-art software. This will be broken down into the following stages:
 
 1. Intro to RStan and the Stan modeling language
 2. Quality Control for MCMC Chains using visualizations and statistical measures
@@ -74,9 +82,13 @@ library(rstan)
 library(shinystan)
 library(loo)
 
-# Set default to parallelize chains (not sure how this will perform on a multi-session server)
-options(mc.cores = parallel::detectCores(),
-        knitr.table.format = "html")
+if (Sys.info()["sysname"] == "Linux") {
+  setwd('workshop_materials/')
+}
+
+# Parallelize chains (may not be a great idea on a server)
+#options(mc.cores = parallel::detectCores())
+options(knitr.table.format = "html")
 
 ```
 
@@ -136,7 +148,7 @@ parameters {
   real<lower=0> sigma;  // variance not accounted for by predictor
 }
 model {
-  y ~ normal(beta[1] + beta[2] * x, sigma);
+  y ~ normal(beta[1] + beta[2] * x, sigma); // likelihood statement
 }
 "
 ```
@@ -262,8 +274,8 @@ print(pooled_mdl_priors)
 ```
 Now that's quite a bit different! We can see that both coefficients are shrunk toward zero. So, obviously, prior selection can have a big effect on the outcome. How do we choose priors (which can be subjective) in a principled way?
 
-## Prior predictive check
-We will use the Prior predictive check approach to choose prior values that are reasonable, given what we know about world.
+## Prior Predictive Check
+We will use the Prior Predictive Check approach to choose prior values that are reasonable, given what we know about world.
 
 We'll start by making two modifications to our Stan script. First, we will turn the hardcoded prior values into data that we can pass into the model.
 ```{r}
@@ -325,7 +337,7 @@ model {
 
 }
 
-// New block generate samples from the predictive distribution //
+// New block generates samples from the predictive distribution //
 generated quantities {
   vector[N] y_rep;
   for (n in 1:N) {
@@ -357,11 +369,11 @@ pooled_dat_prior_pred <- list(
 Then we pass the new model and data to `stan`.
 ```{r, cache=TRUE}
 pooled_mdl_prior_pred <- stan(file = pooled_fpath,
-                          data = pooled_dat_prior_pred,
-                          seed = 438342013, # for reproducibility here
-                          iter = 1000,
-                          chains = 2,
-                          verbose = 0)
+                              data = pooled_dat_prior_pred,
+                              seed = 438342013, # for reproducibility here
+                              iter = 1000,
+                              chains = 2,
+                              verbose = 0)
 ```
 
 And let's take a look at the prior predictive samples in `shinystan`.
@@ -398,11 +410,11 @@ pooled_dat_prior_pred$sigma_prior_scale <- 5
 Now our `stan` call to sample from the Prior Predictive Distribution is just
 ```{r, cache=TRUE}
 pooled_mdl_prior_pred <- stan(file = pooled_fpath,
-                          data = pooled_dat_prior_pred,
-                          seed = 438342013, # for reproducibility here
-                          iter = 1000,
-                          chains = 2,
-                          verbose = 0)
+                              data = pooled_dat_prior_pred,
+                              seed = 438342013, # for reproducibility here
+                              iter = 1000,
+                              chains = 2,
+                              verbose = 0)
 ```
 
 And let's visualize our resulting prior predictive distribution as we did above.
@@ -426,11 +438,11 @@ pooled_dat_prior_pred$sigma_prior_center <- 0.75
 pooled_dat_prior_pred$sigma_prior_scale <- 1
 
 pooled_mdl_prior_pred <- stan(file = pooled_fpath,
-                          data = pooled_dat_prior_pred,
-                          seed = 438342013, # for reproducibility here
-                          iter = 1000,
-                          chains = 2,
-                          verbose = 0)
+                              data = pooled_dat_prior_pred,
+                              seed = 438342013, # for reproducibility here
+                              iter = 1000,
+                              chains = 2,
+                              verbose = 0)
 
 # Extract the prior predictive samples
 y_prior_pred <- rstan::extract(pooled_mdl_prior_pred, pars = "y_rep")
@@ -469,20 +481,20 @@ Let's view the results in `shinystan`.
 ```{r, eval=FALSE}
 launch_shinystan(pooled_mdl_fit)
 ```
-The diagnostics look good and there don't seem to be any sampling issues with out final pooled model, so we can continue to the next stage.
+The diagnostics look good and there don't seem to be any sampling issues with our final pooled model, so we can continue to the next stage.
 
 
 ## Model fit evaluation using Posterior Predictive Check
 Now that we've got a model, how do we evaluate its fit to the data? We can't exactly calculate a model $R^2$ value, since our result in a Bayesian analysis is a posterior distribution, not a set of point estimates. (Full disclosure: there are Bayesian $R^2$ analogs out there, but their general utility is debated)
 
-One commonly used approach is a technique similar to the prior predictive check - called the Posterior Predictive Check. The idea is basically the same, but instead of sampling from the prior predictive distribution without doing any fitting, we sample from the posterior predictive distribution at each MCMC step during fitting. This time we *do* use the real data and compare it with this distribution. We are looking for systematic deviations from the data that would indicate model inadequacy, misspecification, or miscalibration.
+One commonly used approach is a technique similar to the Prior Predictive Check - called the Posterior Predictive Check. The idea is basically the same, but instead of sampling from the prior predictive distribution without doing any fitting, we sample from the posterior predictive distribution at each MCMC step during fitting. This time we *do* use the real data and compare it with this distribution. We are looking for systematic deviations from the data that would indicate model inadequacy, misspecification, or miscalibration.
 
-This is largely a qualitative exercise, using visualizations. The easiest way to visualize the posterior predictive check is to use `shinystan`, which has tools included just for this purpose.
+This is largely a qualitative exercise, using visualizations. The easiest way to visualize the Posterior Predictive Check is to use `shinystan`, which has tools included just for this purpose.
 ```{r, eval=FALSE}
 y <- house_df$log_radon # need to bring this vector into the global env
 launch_shinystan(pooled_mdl_fit)
 ```
-So we can see that this model is a decent fit to the data. It doesn't perfectly capture every contour of the observed distribution, but we can only expect so much from such a simple model. If there were large, systematic differences observed, we would need to reconsider our basic model structure and formulation. For example, if heavy tails are observed in the data, but are always missing from the posterior predictive samples, this would indicate that a Normal model for the outcome may not be appropriate. A Student-T distribution may be more appropriate for those data, which would require adding an additional "degrees of freedom" parameter ($\nu$) into the model. The prior predictive checking would need to be performed all over again, this time including priors on $\nu$.
+So we can see that this model is a decent fit to the data. It doesn't perfectly capture every contour of the observed distribution, but we can only expect so much from such a simple model. If there were large, systematic differences observed, we would need to reconsider our basic model structure and formulation. For example, if heavy tails are observed in the data, but are always missing from the posterior predictive samples, this would indicate that a Normal model for the outcome may not be appropriate. A Student-T distribution may be more appropriate for those data, which would require adding an additional "degrees of freedom" parameter ($\nu$) into the model. The Prior Predictive Check would need to be performed all over again, this time including priors on $\nu$.
 
 ## Estimating out-of-sample performance using LOO-CV
 Now that we have a model that is a decent fit to the data, how do we know if it's actually a *good* model? "Good" is typically interpreted as relative to other models, so what we want to be able to do is to objectively compare between models of different composition and complexity. The gold standard for comparing such models is to use cross-validation, which estimates out-of-sample performance to provide a sense for how well a model would generalize when given new, unobserved, data. Because it can be computationally expensive (or even impossible, given a large enough dataset) to evaluate cross-validated performance on  pointwise basis, a practice known as leave-one-out cross-validation (LOO-CV), we often use approximations, like the popular "information criteria" - AIC, BIC, DIC, etc. We will use the `loo` package in R to perform approximate LOO-CV and compare different models.
@@ -559,8 +571,7 @@ And pass these values to `loo`, which performs the approximate leave-one-out cro
 ```{r, cache=TRUE}
 pooled_loo <- loo(LLmat,
                   r_eff = rel_n_eff,
-                  save_psis = TRUE,
-                  cores = parallel::detectCores()
+                  save_psis = TRUE
                   )
 print(pooled_loo)
 ```
@@ -635,7 +646,7 @@ writeLines(unpooled_str, unpooled)
 close(unpooled)
 ```
 
-Notice that we are just applying the same priors to alpha and beta. Because we are short for time, we are skipping an important step - the prior predictive check. If this was the real-world, you would want to redo your prior predictive check to make sure this is a reasonable choice and use separate priors for alpha and beta, if warranted.
+Notice that we are just applying the same priors to alpha and beta. Because we are short for time, we are skipping an important step - the Prior Predictive Check. If this was the real-world, you would want to redo your Prior Predictive Check to make sure this is a reasonable choice and use separate priors for alpha and beta, if warranted.
 
 Now we update our data structure with the county information.
 ```{r}
@@ -679,8 +690,7 @@ And pass these values to `loo`, which performs the approximate leave-one-out cro
 ```{r, cache=TRUE}
 unpooled_loo <- loo(LLmat,
                     r_eff = rel_n_eff,
-                    save_psis = TRUE,
-                    cores = parallel::detectCores()
+                    save_psis = TRUE
                     )
 print(unpooled_loo)
 ```
@@ -697,8 +707,7 @@ Finally, we would like to compare the two models we've built and see which one m
 ```{r}
 compare(pooled_loo, unpooled_loo)
 ```
-Great! Now what does that mean? Well, all it has really done is calculate the difference in ELPD values (i.e., $ELPD_{diff} = ELPD_{unpooled} - ELPD_{pooled}$) and estimated a Standard Error for that difference (you could bootstrap it yourself instead, if you really wanted). If we consult the documentation for `loo` we learn that
-> The difference will be positive if the expected predictive accuracy for the second model is higher.
+Great! Now what does that mean? Well, all it has really done is calculate the difference in ELPD values (i.e., $ELPD_{diff} = ELPD_{unpooled} - ELPD_{pooled}$) and estimated a Standard Error for that difference (you could bootstrap it yourself instead, if you really wanted). If we consult the documentation for `loo` we learn that the difference will be positive if the expected predictive accuracy for the second model is higher.
 
 So, since our ELPD difference is positive, this means that our unpooled model (the second argument to `compare()`) is expected to perform better. But take this with a grain of salt, since the SE on this estimate is so high. In the real world, I wouldn't be happy to stop here, since both of these models seem inadequate and neither is a clear improvement on the other. A great candidate to try would be a multilevel (hierarchical) model, which is one of the places where Stan really shines.
 
